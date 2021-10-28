@@ -229,6 +229,45 @@ class helper_plugin_include extends DokuWiki_Plugin { // DokuWiki_Helper_Plugin
     }
 
     /**
+     * Using the approve plugin, get the last approved page
+     *
+     * @param Doku_Event $event
+     * @return String (revision), null (no revision present)
+     */
+    function _getLastApprovedRev($pageid) {
+        // If approve plugin active, get latest revision
+        $helper = plugin_load('helper', 'approve');
+
+        if (!$helper) return ''; 
+
+        // Try to get the approvals db
+        try {
+            /** @var \helper_plugin_approve_db $db_helper */
+            $db_helper = plugin_load('helper', 'approve_db');
+            $sqlite = $db_helper->getDB();
+        } catch (Exception $e) {
+            msg($e->getMessage(), -1);
+            return '';
+        }
+
+        //Always use latest revision if 
+        if (!$helper->use_approve_here($sqlite, $pageid, $approver)) return '';
+        if ($helper->client_can_see_drafts($pageid, $approver)) return '';
+
+        $last_approved_rev = $helper->find_last_approved($sqlite, $pageid);
+
+        //no page is approved
+        if (!$last_approved_rev) return null;
+
+        $last_change_date = @filemtime(wikiFN($pageid));
+        //current page is approved
+        if ($last_approved_rev == $last_change_date) return '';
+
+        //Return the latest revision
+        return $last_approved_rev;
+    }
+
+    /**
      * Returns the converted instructions of a give page/section
      *
      * @author Michael Klier <chi@chimeric.de>
@@ -266,7 +305,9 @@ class helper_plugin_include extends DokuWiki_Plugin { // DokuWiki_Helper_Plugin
                 global $ID;
                 $backupID = $ID;
                 $ID = $page; // Change the global $ID as otherwise plugins like the discussion plugin will save data for the wrong page
-                $ins = p_cached_instructions(wikiFN($page), false, $page);
+                $rev = $this->_getLastApprovedRev($page);
+                // If no revisions exist, dont include page
+                $ins = ($rev !== null) ? p_cached_instructions(wikiFN($page, $rev), false, $page) : array();
                 $ID = $backupID;
             } else {
                 $ins = array();
